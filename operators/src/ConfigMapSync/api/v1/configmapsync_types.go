@@ -32,13 +32,16 @@ type ConfigMapSyncSpec struct {
 
 	// foo is an example field of ConfigMapSync. Edit configmapsync_types.go to remove/update
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	SourceNamespace      string `json:"sourceNamespace"`
+	DestinationNamespace string `json:"destinationNamespace"`
+	ConfigMapName        string `json:"configMapName"`
 }
 
 // ConfigMapSyncStatus defines the observed state of ConfigMapSync.
 type ConfigMapSyncStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	LastSyncTime string `json:"lastSyncTime"`
 }
 
 // +kubebuilder:object:root=true
