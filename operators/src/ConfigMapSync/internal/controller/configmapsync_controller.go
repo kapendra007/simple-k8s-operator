@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"time"
 
 	appsv1 "operators/src/ConfigMapSync/api/v1"
@@ -193,6 +195,10 @@ func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 	destinationConfigMap.Labels["configmapsync.apps.kapendra.com/sync-name"] = configMapSync.Name
 	destinationConfigMap.Labels["configmapsync.apps.kapendra.com/sync-namespace"] = configMapSync.Namespace
+	destinationConfigMap.Labels["configmapsync.apps.kapendra.com/managed-by"] = "configmapsync-controller"
+	sourceHash := r.calculateSourceHash(sourceConfigMap.Data)
+	destinationConfigMap.Annotations["configmapsync.apps.kapendra.com/source-hash"] = sourceHash
+	destinationConfigMap.Annotations["configmapsync.apps.kapendra.com/last-sync"] = time.Now().Format(time.RFC3339)
 
 	// Step 4: Check if destination ConfigMap already exists
 	destinationKey := types.NamespacedName{
@@ -211,8 +217,8 @@ func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			if err != nil {
 				configMapSync.Status.RetryCount++
 				backoffDelay := r.calculateBackoffDuration(configMapSync.Status.RetryCount, time.Minute*1)
-				logger.Error(err, "Failed to create destination ConfigMap, retrying with backoff", 
-					"destinationKey", destinationKey, 
+				logger.Error(err, "Failed to create destination ConfigMap, retrying with backoff",
+					"destinationKey", destinationKey,
 					"retryCount", configMapSync.Status.RetryCount,
 					"retryAfter", backoffDelay)
 				return ctrl.Result{RequeueAfter: backoffDelay}, nil
@@ -234,9 +240,9 @@ func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if err != nil {
 			configMapSync.Status.RetryCount++
 			backoffDelay := r.calculateBackoffDuration(configMapSync.Status.RetryCount, time.Minute*1)
-			logger.Error(err, "Failed to update destination ConfigMap, retrying with backoff", 
+			logger.Error(err, "Failed to update destination ConfigMap, retrying with backoff",
 				"destinationKey", destinationKey,
-				"retryCount", configMapSync.Status.RetryCount, 
+				"retryCount", configMapSync.Status.RetryCount,
 				"retryAfter", backoffDelay)
 			return ctrl.Result{RequeueAfter: backoffDelay}, nil
 		}
@@ -289,6 +295,10 @@ func (r *ConfigMapSyncReconciler) calculateBackoffDuration(retryCount int, baseD
 		return maxDelay
 	}
 	return backoff
+}
+
+func (r *ConfigMapSyncReconciler) calculateSourceHash(sourceData map[string]string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%v", sourceData))))
 }
 
 // SetupWithManager sets up the controller with the Manager.
