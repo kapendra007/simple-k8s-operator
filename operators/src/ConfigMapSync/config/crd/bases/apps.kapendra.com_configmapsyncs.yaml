@@ -119,6 +119,8 @@ spec:
                 type: string
               message:
                 type: string
+              retryCount:
+                type: integer
               sourceExists:
                 type: boolean
               syncStatus:

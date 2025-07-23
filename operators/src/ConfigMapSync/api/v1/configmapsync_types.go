@@ -48,6 +48,7 @@ type ConfigMapSyncStatus struct {
 	DestinationExists bool   `json:"destinationExists"`    // Destination ConfigMap exists
 
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	RetryCount int                `json:"retryCount,omitempty"` // Track retry attempts
 }
 
 // +kubebuilder:object:root=true
