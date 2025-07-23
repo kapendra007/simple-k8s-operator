@@ -18,11 +18,13 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	appsv1 "operators/src/ConfigMapSync/api/v1"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -32,7 +34,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const ConfigMapSyncFinalizer = "configmapsync.apps.kapendra.com/finalizer"
+const (
+	ConfigMapSyncFinalizer = "configmapsync.apps.kapendra.com/finalizer"
+	TypeSynced             = "Synced"
+	TypeSourceAvailable    = "SourceAvailable"
+	TypeReady              = "Ready"
+)
 
 // ConfigMapSyncReconciler reconciles a ConfigMapSync object
 type ConfigMapSyncReconciler struct {
@@ -133,10 +140,33 @@ func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("Source ConfigMap not found, skipping sync", "sourceKey", sourceKey)
-			return ctrl.Result{}, nil
+			// Update status to show source not found
+			configMapSync.Status.SyncStatus = "Failed"
+			configMapSync.Status.Message = "Source ConfigMap not found"
+			configMapSync.Status.SourceExists = false
+			configMapSync.Status.DestinationExists = false
+			configMapSync.Status.LastSyncTime = time.Now().Format(time.RFC3339)
+			err = r.Status().Update(ctx, configMapSync)
+			if err != nil {
+				logger.Error(err, "Failed to update ConfigMapSync status")
+			}
+			return ctrl.Result{RequeueAfter: time.Minute * 5}, nil
 		}
-		logger.Error(err, "Failed to fetch source ConfigMap", "sourceKey", sourceKey)
-		return ctrl.Result{}, err
+		
+		logger.Error(err, "Failed to fetch source ConfigMap", "sourceKey", sourceKey, "requeueAfter", "5m")
+		r.setCondition(configMapSync, TypeSynced, metav1.ConditionFalse, "SyncFailed", "Failed to fetch source ConfigMap")
+		r.setCondition(configMapSync, TypeSourceAvailable, metav1.ConditionFalse, "FetchError", "Error accessing source ConfigMap")
+		r.setCondition(configMapSync, TypeReady, metav1.ConditionFalse, "NotReady", "Source ConfigMap fetch failed")
+		configMapSync.Status.SyncStatus = "Failed"
+		configMapSync.Status.Message = "Failed to fetch source ConfigMap"
+		configMapSync.Status.SourceExists = false
+		configMapSync.Status.DestinationExists = false
+		configMapSync.Status.LastSyncTime = time.Now().Format(time.RFC3339)
+		err = r.Status().Update(ctx, configMapSync)
+		if err != nil {
+			logger.Error(err, "Failed to update ConfigMapSync status")
+		}
+		return ctrl.Result{RequeueAfter: time.Second * 30}, nil
 	}
 
 	logger.Info("Source ConfigMap fetched successfully", "sourceKey", sourceKey, "dataKeys", len(sourceConfigMap.Data))
@@ -150,6 +180,12 @@ func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		},
 		Data: sourceConfigMap.Data, // Copy all data from source
 	}
+
+	if destinationConfigMap.Labels == nil {
+		destinationConfigMap.Labels = make(map[string]string)
+	}
+	destinationConfigMap.Labels["configmapsync.apps.kapendra.com/sync-name"] = configMapSync.Name
+	destinationConfigMap.Labels["configmapsync.apps.kapendra.com/sync-namespace"] = configMapSync.Namespace
 
 	// Step 4: Check if destination ConfigMap already exists
 	destinationKey := types.NamespacedName{
@@ -184,12 +220,27 @@ func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 		err = r.Update(ctx, existingConfigMap)
 		if err != nil {
-			logger.Error(err, "Failed to update destination ConfigMap", "destinationKey", destinationKey)
-			return ctrl.Result{}, err
+			logger.Error(err, "Failed to update destination ConfigMap", "destinationKey", destinationKey, "requeueAfter", time.Minute*1)
+			return ctrl.Result{RequeueAfter: time.Minute * 1}, nil
 		}
 		logger.Info("Destination ConfigMap updated successfully", "destinationKey", destinationKey)
 	}
 
+	// Update status after successful sync
+	configMapSync.Status.LastSyncTime = time.Now().Format(time.RFC3339)
+	r.setCondition(configMapSync, TypeSynced, metav1.ConditionTrue, "SyncSucceeded", "ConfigMap synced successfully")
+	r.setCondition(configMapSync, TypeSourceAvailable, metav1.ConditionTrue, "SourceFound", "Source ConfigMap exists and accessible")
+	r.setCondition(configMapSync, TypeReady, metav1.ConditionTrue, "AllComponentsReady", "All sync components are functioning properly")
+	configMapSync.Status.SyncStatus = "Success"
+	configMapSync.Status.Message = "ConfigMap synced successfully"
+	configMapSync.Status.SourceExists = true
+	configMapSync.Status.DestinationExists = true
+
+	err = r.Status().Update(ctx, configMapSync)
+	if err != nil {
+		logger.Error(err, "Failed to update ConfigMapSync status")
+		// Don't return error - sync succeeded even if status update failed
+	}
 	// Sync operation completed successfully
 	logger.Info("ConfigMap sync completed successfully",
 		"sourceKey", sourceKey,
@@ -197,6 +248,17 @@ func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	)
 
 	return ctrl.Result{}, nil
+}
+
+func (r *ConfigMapSyncReconciler) setCondition(configMapSync *appsv1.ConfigMapSync, conditionType string, status metav1.ConditionStatus, reason string, message string) {
+	condition := metav1.Condition{
+		Type:               conditionType,
+		Status:             status,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            message,
+	}
+	meta.SetStatusCondition(&configMapSync.Status.Conditions, condition)
 }
 
 // SetupWithManager sets up the controller with the Manager.

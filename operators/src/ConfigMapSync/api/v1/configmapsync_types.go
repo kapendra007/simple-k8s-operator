@@ -41,7 +41,13 @@ type ConfigMapSyncSpec struct {
 type ConfigMapSyncStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	LastSyncTime string `json:"lastSyncTime"`
+	LastSyncTime      string `json:"lastSyncTime,omitempty"`
+	SyncStatus        string `json:"syncStatus,omitempty"` // "Success", "Failed", "InProgress"
+	Message           string `json:"message,omitempty"`    // Human readable message
+	SourceExists      bool   `json:"sourceExists"`         // Source ConfigMap found
+	DestinationExists bool   `json:"destinationExists"`    // Destination ConfigMap exists
+
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
