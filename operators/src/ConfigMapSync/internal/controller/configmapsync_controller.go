@@ -209,8 +209,13 @@ func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			logger.Info("Destination ConfigMap not found, creating new one", "destinationKey", destinationKey)
 			err = r.Create(ctx, destinationConfigMap)
 			if err != nil {
-				logger.Error(err, "Failed to create destination ConfigMap, retrying in 1m", "destinationKey", destinationKey, "retryAfter", "1m")
-				return ctrl.Result{RequeueAfter: time.Minute * 1}, nil
+				configMapSync.Status.RetryCount++
+				backoffDelay := r.calculateBackoffDuration(configMapSync.Status.RetryCount, time.Minute*1)
+				logger.Error(err, "Failed to create destination ConfigMap, retrying with backoff", 
+					"destinationKey", destinationKey, 
+					"retryCount", configMapSync.Status.RetryCount,
+					"retryAfter", backoffDelay)
+				return ctrl.Result{RequeueAfter: backoffDelay}, nil
 			}
 			logger.Info("Destination ConfigMap created successfully", "destinationKey", destinationKey)
 		} else {
@@ -227,8 +232,13 @@ func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 		err = r.Update(ctx, existingConfigMap)
 		if err != nil {
-			logger.Error(err, "Failed to update destination ConfigMap, retrying in 1m", "destinationKey", destinationKey, "retryAfter", "1m")
-			return ctrl.Result{RequeueAfter: time.Minute * 1}, nil
+			configMapSync.Status.RetryCount++
+			backoffDelay := r.calculateBackoffDuration(configMapSync.Status.RetryCount, time.Minute*1)
+			logger.Error(err, "Failed to update destination ConfigMap, retrying with backoff", 
+				"destinationKey", destinationKey,
+				"retryCount", configMapSync.Status.RetryCount, 
+				"retryAfter", backoffDelay)
+			return ctrl.Result{RequeueAfter: backoffDelay}, nil
 		}
 		logger.Info("Destination ConfigMap updated successfully", "destinationKey", destinationKey)
 	}
