@@ -18,14 +18,107 @@ A Kubernetes operator that synchronizes ConfigMaps across namespaces, built with
 - Go 1.24+ (for development)
 - Docker (for building images)
 
-## 🛠️ Installation
+## 🚀 Quick Start (New Users)
 
-### Option 1: Deploy from Source
+### ⚡ One-Command Installation
+
+**The fastest way to get started:**
+
+```bash
+curl -s https://raw.githubusercontent.com/kapendra007/k8s-operator/main/operators/src/ConfigMapSync/install.sh | bash
+```
+
+### Option 1: Use Pre-built Image (Recommended)
+
+**Perfect for users who just want to use the operator without building:**
 
 1. **Clone the repository**:
    ```bash
-   git clone <your-repo-url>
-   cd ConfigMapSync
+   git clone https://github.com/kapendra007/k8s-operator.git
+   cd k8s-operator/operators/src/ConfigMapSync
+   ```
+
+2. **Deploy to your cluster**:
+   ```bash
+   # Install the Custom Resource Definitions
+   kubectl apply -f config/crd/bases/
+
+   # Create the operator namespace and RBAC
+   kubectl apply -f config/rbac/
+
+   # Deploy the operator with pre-built image
+   kubectl apply -f - <<EOF
+   apiVersion: apps/v1
+   kind: Deployment
+   metadata:
+     name: configmapsync-controller-manager
+     namespace: configmapsync-system
+   spec:
+     replicas: 1
+     selector:
+       matchLabels:
+         control-plane: controller-manager
+     template:
+       metadata:
+         labels:
+           control-plane: controller-manager
+       spec:
+         containers:
+         - name: manager
+           image: docker.io/kapendra007/configmapsync:v1.0.0
+           ports:
+           - containerPort: 8081
+             name: metrics
+           resources:
+             limits:
+               cpu: 500m
+               memory: 128Mi
+             requests:
+               cpu: 10m
+               memory: 64Mi
+         serviceAccountName: configmapsync-controller-manager
+   EOF
+   ```
+
+3. **Verify the installation**:
+   ```bash
+   kubectl get pods -n configmapsync-system
+   kubectl logs -f deployment/configmapsync-controller-manager -n configmapsync-system
+   ```
+
+4. **Create your first ConfigMapSync**:
+   ```bash
+   # First, create a source ConfigMap
+   kubectl create configmap my-app-config --from-literal=database.url=postgres://localhost:5432/myapp
+   
+   # Then sync it to another namespace
+   kubectl apply -f - <<EOF
+   apiVersion: apps.kapendra.com/v1
+   kind: ConfigMapSync
+   metadata:
+     name: my-first-sync
+     namespace: default
+   spec:
+     sourceNamespace: default
+     destinationNamespace: kube-system  
+     configMapName: my-app-config
+   EOF
+   ```
+
+5. **Check the sync worked**:
+   ```bash
+   kubectl get configmap my-app-config -n kube-system
+   kubectl get configmapsync my-first-sync -o yaml
+   ```
+
+### Option 2: Deploy from Source
+
+**For developers who want to build and customize:**
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/kapendra007/k8s-operator.git
+   cd k8s-operator/operators/src/ConfigMapSync
    ```
 
 2. **Install CRDs**:
@@ -33,12 +126,14 @@ A Kubernetes operator that synchronizes ConfigMaps across namespaces, built with
    make install
    ```
 
-3. **Run the operator**:
+3. **Run the operator locally**:
    ```bash
    make run
    ```
 
-### Option 2: Deploy to Cluster
+### Option 3: Deploy Your Own Image
+
+**For users who want to build and deploy their own image:**
 
 1. **Build and push image**:
    ```bash
@@ -491,22 +586,121 @@ make undeploy
 
 ### Troubleshooting
 
-**Common Issues**:
+**Common Issues for New Users**:
 
-1. **Permission Denied**: Ensure proper RBAC permissions are applied
-2. **Source ConfigMap Not Found**: Verify the source namespace and ConfigMap name
-3. **Cross-Namespace Issues**: Check that both namespaces exist and are accessible
+1. **"No resources found" when getting ConfigMapSync**:
+   ```bash
+   # Install CRDs first
+   kubectl apply -f config/crd/bases/
+   
+   # Or if using make
+   make install
+   ```
+
+2. **"Permission denied" errors**:
+   ```bash
+   # Apply RBAC permissions
+   kubectl apply -f config/rbac/
+   
+   # Check if service account exists
+   kubectl get serviceaccount configmapsync-controller-manager -n configmapsync-system
+   ```
+
+3. **Operator pod not starting**:
+   ```bash
+   # Check if namespace exists
+   kubectl create namespace configmapsync-system --dry-run=client -o yaml | kubectl apply -f -
+   
+   # Check image pull issues
+   kubectl describe pod -l control-plane=controller-manager -n configmapsync-system
+   ```
+
+4. **ConfigMapSync not syncing**:
+   ```bash
+   # Check if source ConfigMap exists
+   kubectl get configmap <configmap-name> -n <source-namespace>
+   
+   # Check if destination namespace exists
+   kubectl get namespace <destination-namespace>
+   
+   # Check ConfigMapSync status
+   kubectl describe configmapsync <name>
+   ```
+
+5. **"ImagePullBackOff" error**:
+   - The pre-built image is publicly available at `docker.io/kapendra007/configmapsync:v1.0.0`
+   - No authentication required
+   - Check your cluster's internet connectivity
 
 **Debug Commands**:
 ```bash
 # Check operator logs
 kubectl logs -f deployment/configmapsync-controller-manager -n configmapsync-system
 
+# Check if CRDs are installed
+kubectl get crd configmapsyncs.apps.kapendra.com
+
+# List all ConfigMapSync resources
+kubectl get configmapsync --all-namespaces
+
 # Describe ConfigMapSync resource  
-kubectl describe configmapsync <name>
+kubectl describe configmapsync <name> -n <namespace>
 
 # Check destination ConfigMap
 kubectl get configmap <name> -n <destination-namespace> -o yaml
+
+# Check operator deployment
+kubectl get deployment configmapsync-controller-manager -n configmapsync-system
+```
+
+**Complete Fresh Installation (If Everything Fails)**:
+```bash
+# 1. Clean up any existing installation
+kubectl delete namespace configmapsync-system --ignore-not-found
+kubectl delete crd configmapsyncs.apps.kapendra.com --ignore-not-found
+
+# 2. Fresh installation
+git clone https://github.com/kapendra007/k8s-operator.git
+cd k8s-operator/operators/src/ConfigMapSync
+
+# 3. Apply everything step by step
+kubectl apply -f config/crd/bases/
+kubectl create namespace configmapsync-system
+kubectl apply -f config/rbac/
+
+# 4. Deploy operator
+kubectl apply -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: configmapsync-controller-manager
+  namespace: configmapsync-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+    spec:
+      containers:
+      - name: manager
+        image: docker.io/kapendra007/configmapsync:v1.0.0
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+      serviceAccountName: configmapsync-controller-manager
+EOF
+
+# 5. Wait and verify
+kubectl wait --for=condition=Available deployment/configmapsync-controller-manager -n configmapsync-system --timeout=300s
+kubectl get pods -n configmapsync-system
 ```
 
 ## 📊 Metrics and Observability
