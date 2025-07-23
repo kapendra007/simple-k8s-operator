@@ -196,6 +196,11 @@ func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	destinationConfigMap.Labels["configmapsync.apps.kapendra.com/sync-name"] = configMapSync.Name
 	destinationConfigMap.Labels["configmapsync.apps.kapendra.com/sync-namespace"] = configMapSync.Namespace
 	destinationConfigMap.Labels["configmapsync.apps.kapendra.com/managed-by"] = "configmapsync-controller"
+
+	// Add source hash for change detection
+	if destinationConfigMap.Annotations == nil {
+		destinationConfigMap.Annotations = make(map[string]string)
+	}
 	sourceHash := r.calculateSourceHash(sourceConfigMap.Data)
 	destinationConfigMap.Annotations["configmapsync.apps.kapendra.com/source-hash"] = sourceHash
 	destinationConfigMap.Annotations["configmapsync.apps.kapendra.com/last-sync"] = time.Now().Format(time.RFC3339)
@@ -235,6 +240,14 @@ func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 		// Preserve existing ObjectMeta but update Data section
 		existingConfigMap.Data = sourceConfigMap.Data
+
+		// Update hash and sync timestamp
+		if existingConfigMap.Annotations == nil {
+			existingConfigMap.Annotations = make(map[string]string)
+		}
+		sourceHash := r.calculateSourceHash(sourceConfigMap.Data)
+		existingConfigMap.Annotations["configmapsync.apps.kapendra.com/source-hash"] = sourceHash
+		existingConfigMap.Annotations["configmapsync.apps.kapendra.com/last-sync"] = time.Now().Format(time.RFC3339)
 
 		err = r.Update(ctx, existingConfigMap)
 		if err != nil {
