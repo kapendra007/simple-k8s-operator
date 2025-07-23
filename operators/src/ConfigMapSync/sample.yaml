@@ -1,0 +1,11 @@
+apiVersion: apps.kapendra.com/v1
+kind: ConfigMapSync
+metadata:
+  name: configmap-sync-1
+  namespace: default
+spec:
+  sourceNamespace: default
+  destinationNamespace: kp
+  configMapName: configmap-sync
+
+
